@@ -57,9 +57,22 @@ class IGClient:
                 f"  {url}\n"
             )
             input("Press Enter once you have completed the verification...")
+            self._reset_loader()
             self._loader.login(self._config.ig_username, self._config.ig_password)
         else:
             raise
+
+    def _reset_loader(self) -> None:
+        self._userid_cache.clear()
+        self._loader = instaloader.Instaloader(
+            download_pictures=False,
+            download_videos=False,
+            download_video_thumbnails=False,
+            download_geotags=False,
+            download_comments=False,
+            save_metadata=False,
+            dirname_pattern="/tmp",
+        )
 
     def refresh_session(self) -> None:
         log.info("Refreshing Instagram session.")
