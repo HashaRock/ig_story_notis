@@ -225,7 +225,7 @@ make login
 **What to expect:**
 
 - **Normal case:** You'll see `Session saved successfully.` and be returned to the shell.
-- **Checkpoint / two-factor case:** instaloader will print a prompt asking for the code sent to your email or phone. Enter it and the session will be saved.
+- **Checkpoint case:** Instagram sees a new IP and blocks the login. The bot will print a URL — open it in a browser while logged in as the burner account, complete the verification (Instagram will send a code to the account's email or phone), then press Enter in the terminal. The login retries automatically.
 - **"Please wait a few minutes" error:** Instagram is rate-limiting the login. Wait 5–10 minutes and run `make login` again.
 
 Once the session is saved it persists in `./data/ig_session` and survives container restarts. You should not need to re-run this unless the session expires (see [Maintenance](#9-maintenance--troubleshooting)).

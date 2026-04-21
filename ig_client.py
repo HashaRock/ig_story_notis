@@ -1,4 +1,5 @@
 import logging
+import re
 
 import instaloader
 
@@ -37,9 +38,28 @@ class IGClient:
             self._full_login()
 
     def _full_login(self) -> None:
-        self._loader.login(self._config.ig_username, self._config.ig_password)
+        try:
+            self._loader.login(self._config.ig_username, self._config.ig_password)
+        except instaloader.exceptions.LoginException as exc:
+            self._handle_checkpoint(exc)
         self._loader.save_session_to_file(str(self._config.session_file_path))
         log.info("Login successful — session saved.")
+
+    def _handle_checkpoint(self, exc: Exception) -> None:
+        msg = str(exc)
+        match = re.search(r"(/auth_platform/\S+)", msg)
+        if match:
+            url = f"https://www.instagram.com{match.group(1)}"
+            print(
+                "\n*** Instagram checkpoint required ***\n"
+                "Open the URL below in a browser while logged in as your burner account,\n"
+                "complete the verification, then press Enter to retry login.\n\n"
+                f"  {url}\n"
+            )
+            input("Press Enter once you have completed the verification...")
+            self._loader.login(self._config.ig_username, self._config.ig_password)
+        else:
+            raise
 
     def refresh_session(self) -> None:
         log.info("Refreshing Instagram session.")
