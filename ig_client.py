@@ -1,11 +1,28 @@
 import logging
 import re
+from dataclasses import dataclass
+from datetime import datetime, timezone
 
 import instaloader
 
 from config import Config
 
 log = logging.getLogger(__name__)
+
+_MOBILE_UA = (
+    "Instagram 219.0.0.12.117 Android "
+    "(28/9; 411dpi; 1080x2220; Xiaomi; Redmi Note 7; lavender; qcom; en_US; 190811114)"
+)
+_APP_ID = "936619743392459"
+
+
+@dataclass
+class StoryItem:
+    mediaid: int
+    is_video: bool
+    url: str
+    video_url: str | None
+    date_utc: datetime
 
 
 class IGClient:
@@ -22,7 +39,6 @@ class IGClient:
             download_geotags=False,
             download_comments=False,
             save_metadata=False,
-            # suppress creating per-post directories
             dirname_pattern="/tmp",
         )
 
@@ -67,6 +83,8 @@ class IGClient:
 
     def _reset_loader(self) -> None:
         self._userid_cache.clear()
+        if self._config.ig_target_userid:
+            self._userid_cache[self._config.ig_target_account] = self._config.ig_target_userid
         self._loader = instaloader.Instaloader(
             download_pictures=False,
             download_videos=False,
@@ -82,12 +100,29 @@ class IGClient:
         self._userid_cache.clear()
         self._full_login()
 
-    def get_stories(self, username: str) -> list[instaloader.StoryItem]:
+    def get_stories(self, username: str) -> list[StoryItem]:
         userid = self._get_userid(username)
-        stories = list(self._loader.get_stories(userids=[userid]))
-        items: list[instaloader.StoryItem] = []
-        for story in stories:
-            items.extend(story.get_items())
+        resp = self._loader.context._session.get(
+            f"https://i.instagram.com/api/v1/feed/reels_media/?reel_ids={userid}",
+            headers={"User-Agent": _MOBILE_UA, "x-ig-app-id": _APP_ID},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+
+        items: list[StoryItem] = []
+        for reel in data.get("reels_media", []):
+            for raw in reel.get("items", []):
+                is_video = raw.get("media_type") == 2
+                image_url = raw["image_versions2"]["candidates"][0]["url"]
+                video_url = raw["video_versions"][0]["url"] if is_video else None
+                items.append(StoryItem(
+                    mediaid=int(raw["pk"]),
+                    is_video=is_video,
+                    url=image_url,
+                    video_url=video_url,
+                    date_utc=datetime.fromtimestamp(raw["taken_at"], tz=timezone.utc),
+                ))
+
         log.debug("Fetched %d story items from @%s.", len(items), username)
         return items
 

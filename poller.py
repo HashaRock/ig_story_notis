@@ -2,6 +2,7 @@ import logging
 import time
 
 import instaloader
+import requests
 
 from config import Config
 from discord_notifier import DiscordNotifier
@@ -30,10 +31,12 @@ def run_poll_loop(
                     notifier.send_story_notification(item, config.ig_target_account)
                     state.mark_seen(item.mediaid)
                     log.info("Notified: story %s.", item.mediaid)
-        except instaloader.exceptions.TooManyRequestsException:
-            log.warning("Instagram rate limit hit — backing off 10 minutes.")
-            time.sleep(600)
-            continue
+        except requests.exceptions.HTTPError as exc:
+            if exc.response is not None and exc.response.status_code == 429:
+                log.warning("Instagram rate limit hit — backing off 10 minutes.")
+                time.sleep(600)
+                continue
+            log.error("HTTP error in poll cycle: %s", exc, exc_info=True)
         except instaloader.exceptions.LoginRequiredException:
             log.warning("Instagram session expired — refreshing.")
             try:

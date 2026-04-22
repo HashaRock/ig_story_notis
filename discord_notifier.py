@@ -1,8 +1,9 @@
 import logging
 import time
 
-import instaloader
 import requests
+
+from ig_client import StoryItem
 
 log = logging.getLogger(__name__)
 
@@ -15,7 +16,7 @@ class DiscordNotifier:
         self._session = requests.Session()
 
     def send_story_notification(
-        self, item: instaloader.StoryItem, target_username: str
+        self, item: StoryItem, target_username: str
     ) -> None:
         story_url = (
             f"https://www.instagram.com/stories/{target_username}/{item.mediaid}/"
