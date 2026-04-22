@@ -11,7 +11,10 @@ log = logging.getLogger(__name__)
 class IGClient:
     def __init__(self, config: Config) -> None:
         self._config = config
-        self._userid_cache: dict[str, int] = {}
+        self._userid_cache: dict[str, int] = (
+            {config.ig_target_account: config.ig_target_userid}
+            if config.ig_target_userid else {}
+        )
         self._loader = instaloader.Instaloader(
             download_pictures=False,
             download_videos=False,

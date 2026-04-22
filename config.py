@@ -12,6 +12,7 @@ class Config:
     ig_username: str
     ig_password: str
     ig_target_account: str
+    ig_target_userid: int | None
     discord_webhook_url: str
     poll_interval_seconds: int
     data_dir: Path
@@ -31,10 +32,13 @@ class Config:
         data_dir = Path(os.getenv("DATA_DIR", "./data"))
         data_dir.mkdir(parents=True, exist_ok=True)
 
+        raw_userid = os.getenv("IG_TARGET_USERID")
+
         return cls(
             ig_username=os.environ["IG_USERNAME"],
             ig_password=os.environ["IG_PASSWORD"],
             ig_target_account=os.getenv("IG_TARGET_ACCOUNT", "zero2sudo"),
+            ig_target_userid=int(raw_userid) if raw_userid else None,
             discord_webhook_url=os.environ["DISCORD_WEBHOOK_URL"],
             poll_interval_seconds=int(os.getenv("POLL_INTERVAL_SECONDS", "120")),
             data_dir=data_dir,
