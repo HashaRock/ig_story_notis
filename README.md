@@ -2,7 +2,7 @@
 
 Polls an Instagram account for new Stories and forwards each one to a Discord channel — image/video embed, timestamp, and a direct story link — within 1–5 minutes of posting.
 
-**Stack:** Python 3.12 · instaloader · Discord webhooks · Docker Compose
+**Stack:** Python 3.12 · instaloader (session auth only) · Instagram Mobile API · Discord webhooks · Docker Compose
 
 ---
 
@@ -16,7 +16,8 @@ Polls an Instagram account for new Stories and forwards each one to a Discord ch
 6. [First-Time Instagram Login](#6-first-time-instagram-login)
 7. [Start the Daemon](#7-start-the-daemon)
 8. [Day-to-Day Commands (Makefile)](#8-day-to-day-commands-makefile)
-9. [Maintenance & Troubleshooting](#9-maintenance--troubleshooting)
+9. [How Story Fetching Works (and Why)](#9-how-story-fetching-works-and-why)
+10. [Maintenance & Troubleshooting](#10-maintenance--troubleshooting)
 
 ---
 
@@ -196,11 +197,19 @@ Fill in every value:
 IG_USERNAME=your_burner_ig_username
 IG_PASSWORD=your_burner_ig_password
 IG_TARGET_ACCOUNT=zero2sudo
+IG_TARGET_USERID=50350974961
 DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
 POLL_INTERVAL_SECONDS=120
 DATA_DIR=./data
 LOG_LEVEL=INFO
 ```
+
+**`IG_TARGET_USERID`** is the numeric ID for `@zero2sudo` (not the username). Cloud VPS IPs are blocked from Instagram's profile-lookup API, so this lets the bot skip that lookup entirely. The value `50350974961` is correct for @zero2sudo and never changes — it's permanently tied to the account.
+
+> If you ever target a different account, get their numeric ID by running this in your browser's DevTools console while on their Instagram profile page (must be logged in):
+> ```javascript
+> fetch('/api/v1/users/web_profile_info/?username=THEIR_USERNAME', {headers: {'x-ig-app-id': '936619743392459'}}).then(r=>r.json()).then(d=>console.log(d.data.user.id))
+> ```
 
 Save and exit nano: `Ctrl+O`, `Enter`, `Ctrl+X`.
 
@@ -216,19 +225,54 @@ This pulls `python:3.12-slim` and installs the three dependencies. Takes ~30 sec
 
 ## 6. First-Time Instagram Login
 
-Instagram may trigger a checkpoint (email/SMS verification) the first time you log in from a new IP. This step handles it interactively so the session is saved before the daemon starts.
+GCP IP ranges are flagged by Instagram and will be blocked from logging in directly. The reliable approach is to log in on your **local machine** (residential IP) and copy the session file to the VPS.
+
+### 6a. Log in locally
+
+On your laptop/desktop:
+
+```bash
+pip install instaloader
+instaloader --login YOUR_BURNER_USERNAME
+```
+
+Enter your password when prompted. If Instagram asks for a verification code, enter it. Once complete, instaloader saves a session file at:
+
+```
+~/.config/instaloader/session-YOUR_BURNER_USERNAME
+```
+
+### 6b. Copy the session file to the VPS
+
+```bash
+scp ~/.config/instaloader/session-YOUR_BURNER_USERNAME \
+  YOUR_USERNAME@YOUR_EXTERNAL_IP:~/ig_story_notis/data/ig_session
+```
+
+If you get `Permission denied` on the destination, the `data/` directory was created by Docker as root. Fix it first:
+
+```bash
+# on the VPS
+sudo chown $USER ~/ig_story_notis/data
+```
+
+Then retry the `scp`.
+
+### 6c. Verify on the VPS
 
 ```bash
 make login
 ```
 
-**What to expect:**
+You should see:
+```
+Loaded existing Instagram session from file.
+Session saved successfully.
+```
 
-- **Normal case:** You'll see `Session saved successfully.` and be returned to the shell.
-- **Checkpoint case:** Instagram sees a new IP and blocks the login. The bot will print a URL — open it in a browser while logged in as the burner account, complete the verification (Instagram will send a code to the account's email or phone), then press Enter in the terminal. The login retries automatically.
-- **"Please wait a few minutes" error:** Instagram is rate-limiting the login. Wait 5–10 minutes and run `make login` again.
+Once the session file is in place it persists across container restarts. You should not need to redo this unless the session expires (~90 days) — see [Maintenance](#10-maintenance--troubleshooting).
 
-Once the session is saved it persists in `./data/ig_session` and survives container restarts. You should not need to re-run this unless the session expires (see [Maintenance](#9-maintenance--troubleshooting)).
+> **Why not `make login` directly on the VPS?** GCP datacenter IPs are blocked by Instagram's login endpoint. Even if the login initially succeeds, subsequent API calls fail. Logging in locally and transferring the session sidesteps this entirely.
 
 ---
 
@@ -287,21 +331,36 @@ All common operations are wrapped in `make` targets so you never need to remembe
 
 ---
 
-## 9. Maintenance & Troubleshooting
+## 9. How Story Fetching Works (and Why)
+
+Instagram has two ways to access story data:
+
+| Method | Endpoint | Works from cloud VPS? |
+|---|---|---|
+| instaloader `get_stories()` | `instagram.com/graphql/query` | No — deprecated query hashes return 400; datacenter IPs get 403 |
+| Instagram mobile API | `i.instagram.com/api/v1/feed/reels_media/` | Yes — same endpoint the Android app uses |
+
+This bot uses the **mobile API** directly. instaloader is kept only for session management (login and cookie storage) since it handles the auth flow well. The actual story fetching bypasses instaloader's broken GraphQL layer entirely.
+
+The mobile API requires a numeric **user ID** rather than a username (Instagram's internal API never uses handles). That's why `IG_TARGET_USERID` is set in `.env` — it lets the bot skip the username→ID lookup call, which also hits the blocked GraphQL endpoint.
+
+---
+
+## 10. Maintenance & Troubleshooting
 
 ### Session expiry
 
-Instagram sessions typically last 60–90 days. When the session expires you'll see log lines like:
-```
-[WARNING] ig_client: Session expired — re-authenticating.
-```
-The poller will attempt an automatic refresh. If it fails (e.g. Instagram demands a checkpoint again):
+Instagram sessions typically last 60–90 days. When the session expires you'll see errors in `make logs`. Since direct login from the VPS is blocked, refresh the session the same way you created it:
 
 ```bash
-make down
-rm data/ig_session
-make login
-make up
+# On your local machine
+instaloader --login YOUR_BURNER_USERNAME
+
+scp ~/.config/instaloader/session-YOUR_BURNER_USERNAME \
+  YOUR_USERNAME@YOUR_EXTERNAL_IP:~/ig_story_notis/data/ig_session
+
+# On the VPS
+make restart
 ```
 
 ### No stories showing up
